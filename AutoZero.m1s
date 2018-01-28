@@ -1,0 +1,172 @@
+'----------------------------------------------------------------------
+' Mach3 code for 3 axis zeroing on the Triqueta
+' Written by Allen Massey 2016/06/18
+' Updated by James Newton and Ensari Cokur 2018/01/27
+' Please test this code yourself and use at your own risk
+'----------------------------------------------------------------------
+
+' ---------------------------------------------------------------------
+' These values need to be set to the exact values of your touchplate
+
+PlateThickness =  0.67 ' Inches
+PlateHole = 0.75 ' Inches
+YWidth = 1.747 ' Inches
+XWidth =  1.741 ' Inches
+' ---------------------------------------------------------------------
+ProbeFeed = 3   ' Feedrate to use for probing
+MoveFeed = 30  ' Feedrate to use for movements
+RetractClearance = .25 ' Distance above touch plate to retract
+' ---------------------------------------------------------------------
+ProbeLED = 825
+CurrentFeed = GetOemDRO(FeedrateDRO) ' Save current feedrate
+
+If IsSuchSignal(22) = 0 Then ' Be sure the Touch Probe is wired 
+	Message( "ERROR !! No Touch probe wired" ) 
+	End  ' Stop the Zero routine and exit back to Mach3
+	End If 
+  
+' Be sure the touch plate is not starting out grounded
+' Do nothing if probe is already grounded
+If GetOemLed(ProbeLED) <> 0 Then
+	Message( "ERROR !! Touch Plate is already grounded" ) 
+	End  ' Stop the Zero routine and exit back to Mach3
+	End If
+
+countdown = 15
+count = 40
+While (countdown > 0) 
+	If (count < 1) Then
+		countdown = countdown -1
+	   	If (countdown < 1) Then
+			Message( "ERROR: Touch NOT detected" ) 
+			End
+			End If
+		count = 40
+		End If
+	If GetOemLed(ProbeLED) <> 0 Then
+		Message( "Touch detected" ) 
+		While (GetOemLed(ProbeLED) <> 0)
+			sleep 10
+			Wend
+		countdown = 0
+		End If
+   	sleep 25
+   	count = count -1
+	Message( "Touch plate to probe within " & countdown & "seconds") 
+   	
+   	Wend
+
+sleep 100 'Debounce
+Message( "Touch detected and released" ) 
+
+AbsMode = GetOemLED(AbsoluteModeLED) ' Save current coordinate mode
+Code "G90"                           ' Set absolute coordinate mode
+
+ToolDiameter = InputBox("Enter the Tool Diameter (in inches), or -2 to find with circle, or -1 to zero Z only","AutoZero", -2)
+ToolRadius = ToolDiameter / 2 ' calculate the tool radius
+
+If ToolDiameter = -1 Then ' just do the normal Z zero
+	Call ZeroAxis("Z", -1, PlateThickness, RetractClearance) 
+	End If
+	
+If ToolDiameter > 0 Then ' Zero XYZ with known tool size
+	Message( "Auto Zeroing all for tool of radius " & ToolRadius ) 
+	Call ZeroAxis("X", -0.5, XWidth + ToolRadius, 0.1) ' axis, range, offset, retract
+	code "G91" ' Relative positioning
+	code "G1 Y1.5 F" & MoveFeed ' Move toward back of machine 1.5 inch
+	Call WaitForMove()
+	code "G1 X-0.6 F" & MoveFeed  ' Move Left (to get behind edge finder .6 inches  
+	Call WaitForMove()
+	Call ZeroAxis("Y", -1, YWidth  + ToolRadius, 0.1) ' axis, range, offset, retract
+	code "G91" ' Relative  positioning
+	code "G1 Z" & PlateThickness & " F" & MoveFeed  ' Raise the Z above the top of the plate
+	Call WaitForMove()
+	code "G91" ' Relative  positioning
+	code "G1 Y-0.7 F" & MoveFeed ' Move over the plate by moveing foward .7 inches
+	Call WaitForMove()
+	Call ZeroAxis("Z", -1, PlateThickness, RetractClearance) 
+	Code "(X, Y and Z axis are zeroed)" ' put a message on status bar
+	Message ("ALL axis zeroed for " & ToolRadius & " Radius tool" )
+	End If
+
+If ToolDiameter = -2 Then ' Zero XYZ with unknown tool size
+	Message( "Auto Zeroing all for unknown tool") 
+	Call ZeroAxis("X", -PlateHole, 0, 0.1) ' axis, range, offset, retract
+	XTravel =  ZeroAxis("X", PlateHole, 0, -0.1) ' axis, range, offset, retract
+	code "G91" ' Relative positioning
+	code "G1 X-" & (XTravel/2) & " F" & MoveFeed ' Move to center on X axis
+	Call WaitForMove()
+	Call ZeroAxis("Y", -PlateHole, 0, XTravel/2) ' axis, range, offset, retract
+	YTravel = ZeroAxis("Y", PlateHole, 0, -0.1) ' axis, range, offset, retract
+
+	ToolDiameter = PlateHole - YTravel
+	ToolRadius = ToolDiameter / 2 ' calculate the tool radius
+	
+	code "G91" ' Relative positioning
+	code "G1 Y-" & (YTravel/2) & " F" & MoveFeed ' Move to center on X axis
+	Call WaitForMove()
+
+	Call SetDRO( 0, 0.00 ) 
+	Call SetDRO( 1, 0.00 ) 
+	Code "G4 P0.25" ' pause for val to set
+
+	code "G91" ' Relative  positioning
+	code "G1 Z" & PlateThickness & " F" & MoveFeed  ' Raise the Z above the top of the plate
+	Call WaitForMove()
+	code "G91" ' Relative  positioning
+	code "G1 X0.7 Y0.7 F" & MoveFeed ' Move over the plate by moveing foward .7 inches
+	Call WaitForMove()
+	Call ZeroAxis("Z", -1, PlateThickness, RetractClearance) 
+	Code "(X, Y and Z axis are zeroed)" ' put a message on status bar
+	Message ("ALL axis zeroed for " & ToolRadius & " Radius tool" )
+	End If
+
+If ToolDiameter = 0 Then
+	Message ("Cancelled")
+	End If
+
+If AbsMode = 0 Then
+	Code "G91"
+	End If
+
+Code "F" & CurrentFeed ' Reset feedrate to original value
+		
+Function ZeroAxis(ByVal axis As String, ByVal range As Double, ByVal offset As Double, ByVal retract As Double) As Double
+  
+	Message( "Auto Zeroing " & axis & "..." )
+ 	Select Case axis
+ 	 Case "X" 
+ 	 	axisno = 0
+ 	 Case "Y" 
+ 	 	axisno = 1
+ 	 Case "Z" 
+ 	 	axisno = 2
+ 	 End Select
+	Call SetDRO( axisno, 0.00 ) 
+	Code "G4 P0.25" ' pause for val to set
+	code "G91" ' Relative positioning
+	code "G31 " & axis & range & " F" & ProbeFeed ' move axis a max of range at the ProbeFeed in/min
+	Call WaitForMove()
+	If ( range > 0 And ((range - 0.01) <= GetDRO(axisno)) ) Or (range < 0 And ( (range + 0.01) >= GetDRO(axisno)) ) Then
+		Message( "ERROR: Out of range " & range & " by " & GetDRO(axisno) )
+		End
+		End If
+	If offset <> 0 Then
+		Call SetDRO( axisno, offset ) ' Set the Z zero
+		Code "G4 P0.25"    ' pause for val to set
+		End If
+	code "G1 " & axis & retract & " F" & MoveFeed  ' Retract the axis
+	Call WaitForMove()
+	Code "(" & axis & " axis is zeroed)" ' put a message on status bar
+	ZeroAxis = GetDRO(axisno)
+	End Function
+	
+
+Function WaitForMove() As Boolean
+	While (IsMoving() = 1) And (IsEStop() = 0) ' Wait for moment to stop
+		Wend
+	If IsEStop() = 1 Then
+		Message("ERROR: E-STOP!")
+		End
+		End If
+	End Function
