@@ -62,7 +62,7 @@ Message( "Touch detected and released" )
 AbsMode = GetOemLED(AbsoluteModeLED) ' Save current coordinate mode
 Code "G90"                           ' Set absolute coordinate mode
 
-ToolDiameter = InputBox("Enter the Tool Diameter (in inches), or -2 to find with circle, or -1 to zero Z only","AutoZero", -2)
+ToolDiameter = InputBox("Enter the Tool Diameter (in inches), or -2 to find in hole, or -1 to zero Z only","AutoZero", -2)
 ToolRadius = ToolDiameter / 2 ' calculate the tool radius
 
 If ToolDiameter = -1 Then ' just do the normal Z zero
